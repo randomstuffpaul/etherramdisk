@@ -25,11 +25,16 @@
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-import init.nbq.target.rc
-import init.qcom.fs.rc
+import init.qcom.usb.rc
 import init.target.rc
+#MilesCKHsieh, add for FIH init rc Begin
+import /init.qcom.target.rc
+import /init.qcom.device.rc
+import /init.qcom.product.rc
+#MilesCKHsieh, add for FIH init rc End
 
 on early-init
+    mount debugfs debugfs /sys/kernel/debug
     insmod /sbin/qcrypto_module.ko
     insmod /sbin/qdrbg_module.ko
 
@@ -46,11 +51,12 @@ on early-boot
     # set RLIMIT_MEMLOCK to 64MB
     setrlimit 8 67108864 67108864
     # Allow subsystem (modem etc) debugging
-    #write /sys/module/subsystem_restart/parameters/enable_debug ${persist.sys.ssr.enable_debug}
-    #write /sys/module/pil_msa/parameters/pbl_mba_boot_timeout_ms ${persist.sys.mba_boot_timeout}
-    #write /sys/module/pil_msa/parameters/modem_auth_timeout_ms ${persist.sys.modem_auth_timeout}
-    #write /sys/module/peripheral_loader/parameters/proxy_timeout_ms ${persist.sys.pil_proxy_timeout}
+    write /sys/module/subsystem_restart/parameters/enable_debug ${persist.sys.ssr.enable_debug}
+    write /sys/module/pil_msa/parameters/pbl_mba_boot_timeout_ms ${persist.sys.mba_boot_timeout}
+    write /sys/module/pil_msa/parameters/modem_auth_timeout_ms ${persist.sys.modem_auth_timeout}
+    write /sys/module/peripheral_loader/parameters/proxy_timeout_ms ${persist.sys.pil_proxy_timeout}
     write /sys/kernel/boot_adsp/boot 1
+    exec u:r:qti_init_shell:s0 -- /init.qcom.early_boot.sh
 
 on boot
     chown bluetooth bluetooth /sys/module/bluetooth_power/parameters/power
@@ -177,18 +183,6 @@ on boot
     chown radio radio /data/misc/radio/copy_complete
     chmod 0660 /data/misc/radio/copy_complete
 
-    # Graphics node permissions
-    chown system graphics /sys/class/graphics/fb0/dyn_pu
-    chmod 0664 /sys/class/graphics/fb0/dyn_pu
-    chown system graphics /sys/class/graphics/fb0/dynamic_fps
-    chmod 0664 /sys/class/graphics/fb0/dynamic_fps
-    chown system graphics /sys/class/graphics/fb0/idle_time
-    chmod 0664 /sys/class/graphics/fb0/idle_time
-    chown system graphics /sys/class/graphics/fb0/mode
-    chmod 0664 /sys/class/graphics/fb0/mode
-    chown system graphics /sys/class/graphics/fb0/modes
-    chmod 0664 /sys/class/graphics/fb0/modes
-
 # msm specific files that need to be created on /data
 on post-fs-data
     # Create directory for TZ Apps
@@ -201,9 +195,6 @@ on post-fs-data
     chown media_rw media_rw /data/media
 
     mkdir /data/misc/ipa 0700 net_admin net_admin
-
-    # Create IOP daemon dir
-    mkdir /data/misc/iop 0770 root system
 
     mkdir /data/misc/bluetooth 0770 bluetooth bluetooth
 
@@ -295,9 +286,10 @@ on post-fs-data
     mkdir /data/data/media 0770 media media
 
     #Create PERFD deamon related dirs
+    mkdir /data/misc/perfd 0755 root system
+    chmod 2755 /data/misc/perfd
     mkdir /data/system/perfd 0770 root system
     chmod 2770 /data/system/perfd
-    rm /data/system/perfd/default_values
 
     # RIDL data
     mkdir /data/misc/SelfHost/ 0710 system shell
@@ -313,6 +305,11 @@ service qfintverify /sbin/qfintverify
     seclabel u:r:qfips:s0
     oneshot
 
+service qcomsysd /system/bin/qcom-system-daemon
+    class main
+    user root
+    group root diag
+
 service ssr_setup /system/bin/ssr_setup
     oneshot
     disabled
@@ -322,19 +319,6 @@ service ss_ramdump /system/bin/subsystem_ramdump
     user system
     group system
     disabled
-
-service perfd /system/vendor/bin/perfd
-   class main
-   user root
-   group system
-   socket perfd seqpacket 0666 root system
-   writepid /dev/cpuset/system-background/tasks
-
-service iop /system/bin/iop
-    class main
-    user root
-    group root
-    writepid /dev/cpuset/system-background/tasks
 
 on property:persist.sys.ssr.restart_level=*
     start ssr_setup
@@ -415,6 +399,11 @@ service qcom-c_core-sh /system/bin/sh /init.qcom.class_core.sh
     user root
     oneshot
 
+service qcom-c_main-sh /system/bin/sh /init.class_main.sh
+    class main
+    user root
+    oneshot
+
 on property:vold.decrypt=trigger_restart_framework
     start qcom-c_main-sh
     start config_bt_addr
@@ -424,12 +413,12 @@ on property:persist.env.fastdorm.enabled=true
     setprop persist.radio.data_no_toggle 1
 
 service cnd /system/bin/cnd
-    class main
+    class late_start
     socket cnd stream 660 root inet
 
-service dpmd /system/bin/dpmd
-    class late_start
-    socket dpmd stream 660 root system
+#service dpmd /system/bin/dpmd
+#    class late_start
+#    socket dpmd stream 660 root system
 
 service irsc_util /system/bin/irsc_util "/etc/sec_config"
     class main
@@ -445,11 +434,9 @@ service rfs_access /system/bin/rfs_access
    user root
    group system net_raw
 
-service config_bt_addr /system/bin/btnvtool -O
-    class core
-    user bluetooth
-    group bluetooth radio
-    oneshot
+service tftp_server /system/bin/tftp_server
+   class core
+   user root
 
 on property:wc_transport.start_hci=true
     start start_hci_filter
@@ -463,6 +450,23 @@ service start_hci_filter /system/bin/wcnss_filter
     group bluetooth qcom_diag
     disabled
 
+on property:wc_transport.start_root=true
+    start hci_filter_root
+
+on property:wc_transport.start_root=false
+    stop hci_filter_root
+
+service hci_filter_root /system/bin/wcnss_filter
+    class late_start
+    user bluetooth
+    group bluetooth qcom_diag system
+    disabled
+
+service config_bt_addr /system/bin/btnvtool -O
+    class core
+    user bluetooth
+    group bluetooth radio
+    oneshot
 on property:wc_transport.start_root=true
     start hci_filter_root
 
@@ -539,31 +543,35 @@ service qmuxd /system/bin/qmuxd
     class main
     user root
     group radio audio bluetooth gps nfc diag
+    disabled
 
 service netmgrd /system/bin/netmgrd
     class main
+    disabled
 
 service ipacm-diag /system/bin/ipacm-diag
     class main
     user system
     socket ipacm_log_file dgram 660 system net_admin
-    group net_admin qcom_diag
+    group net_admin diag
+    disabled
 
 service ipacm /system/bin/ipacm
     class main
     user net_admin
     group net_admin inet
+    disabled
 
 service qti /system/vendor/bin/qti
     class main
     user radio
     group radio net_raw diag usb net_admin
+    disabled
 
 service sensors /system/bin/sensors.qcom
     class late_start
     user root
     group root
-    writepid /dev/cpuset/system-background/tasks
     disabled
 
 on property:ro.use_data_netmgrd=false
@@ -657,17 +665,29 @@ service iprenew_p2p /system/bin/dhcpcd -n
     disabled
     oneshot
 
+service ptt_socket_app /system/bin/ptt_socket_app -d
+    class main
+    user root
+    group root
+    oneshot
+
+service ptt_ffbm /system/bin/ptt_socket_app -f -d
+    user root
+    group root
+    disabled
+    oneshot
+
+service ftm_ffbm /system/bin/ftmdaemon
+    user root
+    group root
+    disabled
+    oneshot
+
 service cnss_diag /system/bin/cnss_diag -q -f
     class main
     user root
     group root
-    disabled
-
-on property:cnss_diag.load=true
-    start cnss_diag
-
-on property:cnss_diag.load=false
-    stop cnss_diag
+    oneshot
 
 service cnss-daemon /system/bin/cnss-daemon -n -l
     class late_start
@@ -760,9 +780,16 @@ service wifi-crda /system/bin/sh /system/etc/init.crda.sh
    disabled
    oneshot
 
+service config-zram /system/bin/sh /system/etc/init.qcom.zram.sh
+   class late_start
+   user root
+   disabled
+   oneshot
+
 on property:sys.boot_completed=1
     start qcom-post-boot
     start qti-testscripts
+    start config-zram
 
 service atfwd /system/bin/ATFWD-daemon
     class late_start
@@ -811,6 +838,24 @@ service ril-daemon3 /system/bin/rild -c 3
     disabled
     group radio cache inet misc audio sdcard_r sdcard_rw qcom_diag diag log
 
+service usb_uicc_enable /system/bin/sh /system/etc/init.qcom.uicc.sh
+    class late_start
+    user root
+    disabled
+    oneshot
+
+service usb_uicc_daemon /system/bin/usb_uicc_client
+    class main
+    user system
+    group system log net_raw
+    oneshot
+
+on property:sys.usb_uicc.enabled=1
+    start usb_uicc_enable
+
+on property:sys.usb_uicc.enabled=0
+    start usb_uicc_enable
+
 service profiler_daemon /system/bin/profiler_daemon
     class late_start
     user root
@@ -822,6 +867,10 @@ service hcidump /system/bin/sh /system/etc/hcidump.sh
     group bluetooth system net_bt_admin net_admin
     disabled
     oneshot
+
+service charger /charger
+    class charger
+    seclabel u:r:healthd:s0
 
 service ssr_diag /system/bin/ssr_diag
     class late_start
@@ -906,3 +955,27 @@ on property:persist.sys.qlogd=1
 on property:persist.sys.qlogd=0
     stop qlogd
 
+service vm_bms /system/bin/vm_bms
+    user root
+    group root
+    disabled
+
+#service msm_irqbalance /system/bin/msm_irqbalance -f /system/vendor/etc/msm_irqbalance.conf
+#    socket msm_irqbalance seqpacket 660 root system
+#    class core
+#    user root
+#    group root
+#    disabled
+
+service wfdservice /system/bin/wfdservice
+    class main
+    user system
+    group graphics audio camera inet net_bt net_bt_admin net_bt_stack drmrpc bluetooth media_rw media
+
+service RIDL /system/vendor/bin/RIDLClient.exe
+    class late_start
+    oneshot
+    user system
+    group system inet log sdcard_r sdcard_rw qcom_diag
+    # removed for security team - misc bluetooth radio gps wifi diag media_rw
+    # limited to 12 groups.  Unused: audio usb net_bt_admin net_bt_stac net_raw net_admin

@@ -1,4 +1,5 @@
-# Copyright (c) 2009-2012, The Linux Foundation. All rights reserved.
+#!/system/bin/sh
+# Copyright (c) 2013, The Linux Foundation. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -7,7 +8,7 @@
 #     * Redistributions in binary form must reproduce the above copyright
 #       notice, this list of conditions and the following disclaimer in the
 #       documentation and/or other materials provided with the distribution.
-#     * Neither the name of The Linux Foundation nor
+#     * Neither the name of Linux Foundation nor
 #       the names of its contributors may be used to endorse or promote
 #       products derived from this software without specific prior written
 #       permission.
@@ -24,14 +25,9 @@
 # OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-# WeiHungChen,[NBQ-127]:porting smart Amp.
-import /init.fih.nbq.rc
-import /init.nbq.fs.rc
-import /init.nbq.led.rc
-import /init.nbq.charger.rc
-import /init.nbq.poweroff_charging.rc
 
-# IrisChen, 20150915, add for log 
-#import /init.qcom.log.rc
+baseband=`getprop ro.baseband`
+if [ "$baseband" = "mdm" ] || [ "$baseband" = "mdm2" ]; then
+	start mdm_helper
+fi
 
-import /init.nbq.fingerprint.rc
