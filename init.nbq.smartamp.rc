@@ -1,0 +1,4 @@
+on init
+	chown root audio /dev/i2c-1
+	chmod 660 /dev/i2c-1
+
